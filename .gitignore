@@ -1,0 +1,20 @@
+# Geheimnisse — niemals ins Repo
+.env
+*.env
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Laufzeitdaten des Sprachagenten (liegen auf der NAS, nicht im Git)
+n8n-voice-agent/bridge/config/projects.yaml
+jobs/
+
+# Betriebssystem
+.DS_Store
+Thumbs.db

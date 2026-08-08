@@ -1,0 +1,66 @@
+# Allowlist der Verzeichnisse, in denen der Agent arbeiten darf.
+# Pfade sind relativ zu WORKSPACE_ROOT (im Container /workspace).
+# Nach jeder Aenderung: Container "claude-bridge" neu starten.
+#
+# Kopieren nach  /volume1/docker/claude/config/projects.yaml
+#
+# Regelsyntax von allowed_tools/disallowed_tools ist die Permission-Rule-Syntax
+# von Claude Code: "Bash(git commit *)" — das Leerzeichen vor dem * erzwingt
+# eine Wortgrenze. Deny schlaegt Allow immer.
+
+default_projekt: kierp
+
+projekte:
+  kierp:
+    pfad: kierp
+    beschreibung: "KIERP – KI-faehiges ERP fuer Agrar-Drohnendienstleistung"
+    # Woran die Spracherkennung das Projekt erkennt. Diktat ist ungenau,
+    # deshalb mehrere Schreibweisen angeben:
+    aliase: ["kierp", "ki erp", "kihrp", "erp", "auftragsverwaltung"]
+    permission_mode: acceptEdits   # darf Dateien schreiben, Shell nur laut Liste
+    model: opus
+    max_turns: 60
+    max_budget_usd: 3.0
+    allowed_tools:
+      - "Bash(git status *)"
+      - "Bash(git diff *)"
+      - "Bash(git log *)"
+      - "Bash(git add *)"
+      - "Bash(git commit *)"
+      - "Bash(git switch *)"
+      - "Bash(git checkout *)"
+      - "Bash(uv run *)"
+      - "Bash(uv sync *)"
+      - "Bash(npm run *)"
+      - "Bash(npm test *)"
+      - "Bash(pytest *)"
+      - "Bash(ruff *)"
+    disallowed_tools:
+      # Harte Bremsen. Deny gewinnt gegen jede Allow-Regel.
+      - "Bash(rm *)"
+      - "Bash(sudo *)"
+      - "Bash(git push *)"
+      - "Bash(git reset --hard *)"
+      - "Bash(supabase db push *)"
+      - "Bash(docker *)"
+      - "Bash(curl *)"
+    zusatz_systemprompt: |
+      Verbindliche Quelle der Anforderungen ist docs/Lastenheft_KIERP_v0.10.md.
+      Konventionen stehen in CLAUDE.md — insbesondere: niemals gegen das
+      Produktiv-Supabase-Projekt migrieren, keine Secrets ins Repo.
+
+  werkstatt:
+    pfad: werkstatt
+    beschreibung: "Notizen und Skripte Werkstatt"
+    aliase: ["werkstatt", "notizen"]
+    permission_mode: acceptEdits
+    max_turns: 30
+    max_budget_usd: 1.0
+
+  spielwiese:
+    pfad: spielwiese
+    beschreibung: "Testprojekt zum Ausprobieren des Agenten"
+    aliase: ["spielwiese", "sandkasten", "testprojekt"]
+    permission_mode: acceptEdits
+    max_turns: 20
+    max_budget_usd: 0.5

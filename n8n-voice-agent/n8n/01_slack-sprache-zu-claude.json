@@ -1,0 +1,559 @@
+{
+  "name": "Claude 1 · Slack-Sprache → Bridge",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "slack-events",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "id": "slack-webhook",
+      "name": "Slack Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -320,
+        380
+      ],
+      "webhookId": "slack-events"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n//  ⚙️  KONFIGURATION — hier anpassen\n// ============================================================\nconst KONFIG = {\n  // Interne Adresse der Bridge (gleiches Docker-Netz wie n8n):\n  bridgeUrl: 'http://claude-bridge:8790',\n\n  // Öffentliche URL, unter der Workflow 2 den Callback entgegennimmt.\n  // Muss von der Bridge aus erreichbar sein (im Docker-Netz reicht der\n  // Container-Name):\n  callbackUrl: 'http://n8n:5678/webhook/claude-callback',\n\n  // Spracherkennung. Für lokal (Container \"speaches\"/faster-whisper):\n  //   sttUrl: 'http://speaches:8000/v1/audio/transcriptions'\n  //   sttModell: 'Systran/faster-whisper-large-v3'\n  // und im Node \"Transkribieren\" die Authentifizierung auf \"None\" stellen.\n  sttModell: 'gpt-4o-transcribe',\n  sprache: 'de',\n\n  // Kanal -> Projekt. Leer lassen: die Bridge erkennt das Projekt am Diktat.\n  // Beispiel: { 'C01ABCDEFG': 'kierp' }\n  kanalProjekte: {},\n\n  // Nur diese Slack-Nutzer dürfen den Agenten steuern (leer = jeder im\n  // Workspace, der den Bot erreichen kann). Empfehlung: eigene ID eintragen.\n  erlaubteNutzer: [],\n\n  // Nur Ereignisse aus diesem Workspace annehmen (leer = egal):\n  erlaubteTeams: [],\n};\n// ============================================================\n\nconst eingang = $input.first();\nconst kopf = eingang.json.headers || {};\n\nif (!eingang.binary || !eingang.binary.data) {\n  throw new Error('Kein Rohkörper. Im Webhook-Node die Option \"Raw Body\" aktivieren.');\n}\nconst roh = Buffer.from(eingang.binary.data.data, 'base64').toString('utf8');\n\n// --- Slack-Signatur prüfen -------------------------------------------------\nasync function hmacHex(secret, daten) {\n  try {\n    return require('crypto').createHmac('sha256', secret).update(daten).digest('hex');\n  } catch (e) {\n    // Sandbox erlaubt kein require -> WebCrypto versuchen\n  }\n  const enc = new TextEncoder();\n  const key = await crypto.subtle.importKey(\n    'raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);\n  const mac = await crypto.subtle.sign('HMAC', key, enc.encode(daten));\n  return Array.from(new Uint8Array(mac)).map(b => b.toString(16).padStart(2, '0')).join('');\n}\n\nconst secret = $env.SLACK_SIGNING_SECRET || '';\nconst zeitstempel = kopf['x-slack-request-timestamp'];\nconst signatur = kopf['x-slack-signature'];\nlet signaturGeprueft = false;\n\nif (secret && zeitstempel && signatur) {\n  if (Math.abs(Date.now() / 1000 - Number(zeitstempel)) > 300) {\n    throw new Error('Slack-Anfrage ist älter als 5 Minuten — abgewiesen (Replay-Schutz).');\n  }\n  let hex = null;\n  try {\n    hex = await hmacHex(secret, `v0:${zeitstempel}:${roh}`);\n  } catch (e) {\n    // Weder require('crypto') noch WebCrypto verfügbar: siehe docs/SICHERHEIT.md\n  }\n  if (hex !== null) {\n    if (`v0=${hex}` !== signatur) throw new Error('Slack-Signatur ungültig — abgewiesen.');\n    signaturGeprueft = true;\n  }\n}\n\nconst koerper = JSON.parse(roh);\n\n// --- Handshake beim Einrichten der Slack-App -------------------------------\nif (koerper.type === 'url_verification') {\n  return [{ json: { aktion: 'challenge', challenge: koerper.challenge, konfig: KONFIG } }];\n}\n\nconst abbrechen = (grund) => [{ json: { aktion: 'ignorieren', grund, konfig: KONFIG } }];\n\n// Slack wiederholt bei Timeout — Wiederholungen niemals erneut ausführen.\nif (kopf['x-slack-retry-num']) return abbrechen('Slack-Wiederholung');\n\nif (KONFIG.erlaubteTeams.length && !KONFIG.erlaubteTeams.includes(koerper.team_id)) {\n  return abbrechen('fremder Workspace');\n}\n\nconst e = koerper.event || {};\nif (e.bot_id || e.subtype === 'bot_message' || e.user === koerper.authorizations?.[0]?.user_id) {\n  return abbrechen('eigene Nachricht');\n}\n\nconst istDirektnachricht = e.type === 'message' && e.channel_type === 'im';\nconst istErwaehnung = e.type === 'app_mention';\nif (!istDirektnachricht && !istErwaehnung) return abbrechen(`Ereignistyp ${e.type}`);\n\nif (KONFIG.erlaubteNutzer.length && !KONFIG.erlaubteNutzer.includes(e.user)) {\n  return abbrechen(`Nutzer ${e.user} nicht freigegeben`);\n}\n\n// Erwähnung \"<@U123> mach xy\" -> \"mach xy\"\nconst text = (e.text || '').replace(/<@[A-Z0-9]+>/g, '').trim();\nconst audio = (e.files || []).find(f => (f.mimetype || '').startsWith('audio/'));\n\nif (!audio && !text) return abbrechen('weder Text noch Sprachdatei');\n\nreturn [{\n  json: {\n    aktion: 'verarbeiten',\n    konfig: KONFIG,\n    signaturGeprueft,\n    kanal: e.channel,\n    nutzer: e.user,\n    threadTs: e.thread_ts || e.ts,\n    text,\n    hatAudio: Boolean(audio),\n    datei: audio\n      ? { id: audio.id, url: audio.url_private_download || audio.url_private, name: audio.name }\n      : null,\n  },\n}];"
+      },
+      "id": "slack-prüfen",
+      "name": "Slack prüfen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -100,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.aktion }}",
+              "rightValue": "challenge",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "handshake",
+      "name": "Handshake?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        120,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.challenge }}",
+        "options": {}
+      },
+      "id": "antwort-handshake",
+      "name": "Antwort Handshake",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        340,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "ok",
+        "options": {}
+      },
+      "id": "antwort-200",
+      "name": "Antwort 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        340,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.aktion }}",
+              "rightValue": "verarbeiten",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "verarbeiten",
+      "name": "Verarbeiten?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        560,
+        500
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "ignoriert",
+      "name": "Ignoriert",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        780,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.hatAudio }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "sprachnachricht",
+      "name": "Sprachnachricht?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        780,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.datei.url }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "slackApi",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      },
+      "id": "audio-laden",
+      "name": "Audio laden",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1000,
+        340
+      ],
+      "credentials": {
+        "slackApi": {
+          "id": "slack-bot-token",
+          "name": "Slack Bot Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/audio/transcriptions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "data"
+            },
+            {
+              "name": "model",
+              "value": "={{ $('Slack prüfen').first().json.konfig.sttModell }}"
+            },
+            {
+              "name": "language",
+              "value": "={{ $('Slack prüfen').first().json.konfig.sprache }}"
+            },
+            {
+              "name": "response_format",
+              "value": "json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "transkribieren",
+      "name": "Transkribieren",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1220,
+        340
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-key",
+          "name": "OpenAI API"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Antwort der Spracherkennung (OpenAI-kompatibel: { text: \"...\" })\nconst antwort = $input.first().json;\nconst transkript = (antwort.text || antwort.transcript || '').trim();\nif (!transkript) throw new Error('Die Spracherkennung hat keinen Text geliefert.');\nreturn [{ json: { transkript, quelle: 'sprache' } }];"
+      },
+      "id": "transkript-übernehmen",
+      "name": "Transkript übernehmen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Getippte Nachricht — kein Umweg über die Spracherkennung.\nconst start = $('Slack prüfen').first().json;\nreturn [{ json: { transkript: (start.text || '').trim(), quelle: 'text' } }];"
+      },
+      "id": "text-übernehmen",
+      "name": "Text übernehmen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const start = $('Slack prüfen').first().json;\nconst KONFIG = start.konfig;\nconst transkript = ($input.first().json.transkript || '').trim();\nif (!transkript) throw new Error('Leerer Auftrag.');\n\nconst klein = transkript.toLowerCase();\n\n// Gesprochene Steuerworte\nconst neuStarten = /(neu anfangen|von vorne|vergiss (das|alles)|neues thema|neue aufgabe)/.test(klein);\nconst nurPlanen  = /(nur planen|erst(mal)? planen|mach (mir )?(erst )?einen plan|nichts ändern)/.test(klein);\n\nreturn [{\n  json: {\n    prompt: transkript,\n    // null = die Bridge sucht das Projekt selbst aus dem Diktat\n    projekt: KONFIG.kanalProjekte[start.kanal] || null,\n    permission_mode: nurPlanen ? 'plan' : null,\n    conversation_key: `slack:${start.kanal}:${start.threadTs}`,\n    neu_starten: neuStarten,\n    callback_url: KONFIG.callbackUrl,\n    meta: {\n      kanal: start.kanal,\n      thread_ts: start.threadTs,\n      nutzer: start.nutzer,\n      quelle: $input.first().json.quelle,\n    },\n    vorschau: transkript.length > 500 ? transkript.slice(0, 500) + ' …' : transkript,\n  },\n}];"
+      },
+      "id": "auftrag-bauen",
+      "name": "Auftrag bauen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1660,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "slackApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ channel: $json.meta.kanal, thread_ts: $json.meta.thread_ts, text: '🎧 Verstanden: „' + $json.vorschau + '“\\n_Ich lege los …_' }) }}",
+        "options": {}
+      },
+      "id": "slack-verstanden",
+      "name": "Slack: Verstanden",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1880,
+        480
+      ],
+      "credentials": {
+        "slackApi": {
+          "id": "slack-bot-token",
+          "name": "Slack Bot Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Slack prüfen').first().json.konfig.bridgeUrl }}/jobs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ prompt: $('Auftrag bauen').first().json.prompt, projekt: $('Auftrag bauen').first().json.projekt, permission_mode: $('Auftrag bauen').first().json.permission_mode, conversation_key: $('Auftrag bauen').first().json.conversation_key, neu_starten: $('Auftrag bauen').first().json.neu_starten, callback_url: $('Auftrag bauen').first().json.callback_url, meta: Object.assign({}, $('Auftrag bauen').first().json.meta, { status_ts: $json.ts }) }) }}",
+        "options": {}
+      },
+      "id": "bridge-auftrag-starten",
+      "name": "Bridge: Auftrag starten",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2100,
+        480
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "claude-bridge-token",
+          "name": "Claude Bridge Token"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "slackApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ channel: $('Slack prüfen').first().json.kanal, thread_ts: $('Slack prüfen').first().json.threadTs, text: '⚠️ Der Auftrag konnte nicht gestartet werden: ' + ($json.error?.message || $json.error || JSON.stringify($json).slice(0, 300)) }) }}",
+        "options": {}
+      },
+      "id": "slack-fehler-melden",
+      "name": "Slack: Fehler melden",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2320,
+        680
+      ],
+      "credentials": {
+        "slackApi": {
+          "id": "slack-bot-token",
+          "name": "Slack Bot Token"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Slack Webhook": {
+      "main": [
+        [
+          {
+            "node": "Slack prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack prüfen": {
+      "main": [
+        [
+          {
+            "node": "Handshake?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handshake?": {
+      "main": [
+        [
+          {
+            "node": "Antwort Handshake",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Antwort 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Antwort 200": {
+      "main": [
+        [
+          {
+            "node": "Verarbeiten?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verarbeiten?": {
+      "main": [
+        [
+          {
+            "node": "Sprachnachricht?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ignoriert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sprachnachricht?": {
+      "main": [
+        [
+          {
+            "node": "Audio laden",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Text übernehmen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Audio laden": {
+      "main": [
+        [
+          {
+            "node": "Transkribieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transkribieren": {
+      "main": [
+        [
+          {
+            "node": "Transkript übernehmen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack: Fehler melden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transkript übernehmen": {
+      "main": [
+        [
+          {
+            "node": "Auftrag bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Text übernehmen": {
+      "main": [
+        [
+          {
+            "node": "Auftrag bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auftrag bauen": {
+      "main": [
+        [
+          {
+            "node": "Slack: Verstanden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack: Verstanden": {
+      "main": [
+        [
+          {
+            "node": "Bridge: Auftrag starten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bridge: Auftrag starten": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Slack: Fehler melden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "claude-sprachagent"
+    }
+  ]
+}

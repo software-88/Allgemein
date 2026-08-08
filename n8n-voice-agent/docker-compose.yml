@@ -1,0 +1,111 @@
+# Sprachagent auf der Synology: n8n + Claude-Bridge.
+# Einrichten als Projekt im Container Manager (DSM 7.2+) oder per SSH:
+#   docker compose up -d --build
+#
+# Alle Werte kommen aus .env (Vorlage: .env.example).
+
+name: claude-sprachagent
+
+services:
+  # ---------------------------------------------------------------- n8n
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: n8n
+    restart: unless-stopped
+    ports:
+      - "${N8N_PORT:-5678}:5678"
+    environment:
+      TZ: ${TZ:-Europe/Berlin}
+      GENERIC_TIMEZONE: ${TZ:-Europe/Berlin}
+      # Muss die von aussen erreichbare URL sein, sonst registriert Slack
+      # falsche Webhook-Adressen:
+      N8N_HOST: ${N8N_HOST}
+      N8N_PROTOCOL: ${N8N_PROTOCOL:-https}
+      WEBHOOK_URL: ${N8N_PUBLIC_URL}
+      N8N_EDITOR_BASE_URL: ${N8N_PUBLIC_URL}
+      # Verschluesselt die gespeicherten Credentials. NIE nachtraeglich aendern,
+      # sonst sind alle hinterlegten Zugaenge unbrauchbar.
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      # Damit die Code-Nodes die Signaturen pruefen koennen:
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+      NODE_FUNCTION_ALLOW_BUILTIN: crypto
+      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
+      BRIDGE_TOKEN: ${BRIDGE_TOKEN}
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_RUNNERS_ENABLED: "true"
+    volumes:
+      - ${DATA_ROOT:-/volume1/docker}/n8n:/home/node/.n8n
+    networks:
+      - agentnetz
+
+  # ------------------------------------------------------- Claude-Bridge
+  claude-bridge:
+    build:
+      context: ./bridge
+      args:
+        PUID: ${PUID:-1026}
+        PGID: ${PGID:-100}
+    container_name: claude-bridge
+    restart: unless-stopped
+    init: true
+    # Bewusst KEIN ports-Eintrag: die Bridge ist nur im Docker-Netz
+    # erreichbar, nie direkt aus dem LAN oder dem Internet.
+    environment:
+      TZ: ${TZ:-Europe/Berlin}
+      BRIDGE_TOKEN: ${BRIDGE_TOKEN}
+      # Genau eine der beiden Anmeldungen setzen:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+      MAX_CONCURRENT_JOBS: ${MAX_CONCURRENT_JOBS:-2}
+      JOB_TIMEOUT_SECONDS: ${JOB_TIMEOUT_SECONDS:-1800}
+      PROGRESS_INTERVAL_SECONDS: ${PROGRESS_INTERVAL_SECONDS:-25}
+      # Nur setzen, wenn ein Projekt wirklich ohne Rueckfragen alles darf:
+      BRIDGE_ALLOW_BYPASS: ${BRIDGE_ALLOW_BYPASS:-}
+      GIT_AUTHOR_NAME: ${GIT_AUTHOR_NAME:-Claude Sprachagent}
+      GIT_AUTHOR_EMAIL: ${GIT_AUTHOR_EMAIL:-agent@localhost}
+      GIT_COMMITTER_NAME: ${GIT_AUTHOR_NAME:-Claude Sprachagent}
+      GIT_COMMITTER_EMAIL: ${GIT_AUTHOR_EMAIL:-agent@localhost}
+    volumes:
+      # Die Projekte, an denen gebaut werden darf:
+      - ${DATA_ROOT:-/volume1/docker}/claude/workspace:/workspace
+      # projects.yaml + systemprompt.de.md (nur lesend):
+      - ${DATA_ROOT:-/volume1/docker}/claude/config:/config:ro
+      # Job-Protokolle (nachlesbar mit cat):
+      - ${DATA_ROOT:-/volume1/docker}/claude/jobs:/data/jobs
+      # ~/.claude: Anmeldung und Sitzungsverlauf ueber Neustarts hinweg:
+      - ${DATA_ROOT:-/volume1/docker}/claude/home:/home/node
+    networks:
+      - agentnetz
+
+  # --------------------------------------- optional: Spracherkennung lokal
+  # Startet nur mit:  docker compose --profile lokal-stt up -d
+  # Dann in Workflow 1 KONFIG.sttUrl auf http://speaches:8000/v1/... stellen.
+  speaches:
+    image: ghcr.io/speaches-ai/speaches:latest-cpu
+    container_name: speaches
+    restart: unless-stopped
+    profiles: ["lokal-stt"]
+    environment:
+      TZ: ${TZ:-Europe/Berlin}
+      WHISPER__MODEL: ${WHISPER_MODELL:-Systran/faster-whisper-small}
+      WHISPER__COMPUTE_TYPE: int8
+    volumes:
+      - ${DATA_ROOT:-/volume1/docker}/claude/whisper:/home/ubuntu/.cache/huggingface
+    networks:
+      - agentnetz
+
+  # ------------------------ optional: oeffentlicher Zugang ohne Portfreigabe
+  # Alternative zum DSM-Reverse-Proxy. Startet nur mit:
+  #   docker compose --profile tunnel up -d
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    restart: unless-stopped
+    profiles: ["tunnel"]
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    networks:
+      - agentnetz
+
+networks:
+  agentnetz:
+    driver: bridge

@@ -1,0 +1,407 @@
+{
+  "name": "Claude 2 · Bridge-Callback → Slack",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "claude-callback",
+        "responseMode": "onReceived",
+        "responseData": "noData",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "id": "bridge-webhook",
+      "name": "Bridge Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -320,
+        400
+      ],
+      "webhookId": "claude-callback"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n//  ⚙️  KONFIGURATION\n// ============================================================\nconst KONFIG = {\n  // Sprachausgabe der Antwort (optional). Braucht die zusätzlichen,\n  // standardmäßig deaktivierten Nodes am Ende dieses Workflows.\n  sprachausgabe: false,\n  ttsModell: 'gpt-4o-mini-tts',\n  ttsStimme: 'alloy',\n};\n// ============================================================\n\nconst eingang = $input.first();\nif (!eingang.binary || !eingang.binary.data) {\n  throw new Error('Kein Rohkörper. Im Webhook-Node die Option \"Raw Body\" aktivieren.');\n}\nconst roh = Buffer.from(eingang.binary.data.data, 'base64').toString('utf8');\n\n// --- Signatur der Bridge prüfen (gleicher Token wie BRIDGE_TOKEN) ----------\nasync function hmacHex(secret, daten) {\n  try {\n    return require('crypto').createHmac('sha256', secret).update(daten).digest('hex');\n  } catch (e) { /* WebCrypto-Weg */ }\n  const enc = new TextEncoder();\n  const key = await crypto.subtle.importKey(\n    'raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);\n  const mac = await crypto.subtle.sign('HMAC', key, enc.encode(daten));\n  return Array.from(new Uint8Array(mac)).map(b => b.toString(16).padStart(2, '0')).join('');\n}\n\nconst token = $env.BRIDGE_TOKEN || '';\nconst signatur = (eingang.json.headers || {})['x-bridge-signature'];\nif (token && signatur) {\n  let hex = null;\n  try { hex = await hmacHex(token, roh); } catch (e) { /* s. docs/SICHERHEIT.md */ }\n  if (hex !== null && `sha256=${hex}` !== signatur) {\n    throw new Error('Callback-Signatur ungültig — abgewiesen.');\n  }\n}\n\nconst p = JSON.parse(roh);\nreturn [{ json: { ...p, konfig: KONFIG } }];"
+      },
+      "id": "callback-prüfen",
+      "name": "Callback prüfen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -100,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.event }}",
+              "rightValue": "progress",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "fortschritt",
+      "name": "Fortschritt?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        120,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.update",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "slackApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ channel: $json.meta.kanal, ts: $json.meta.status_ts, text: '⚙️ ' + $json.schritt + '  _(Schritt ' + $json.anzahl_schritte + ')_' }) }}",
+        "options": {}
+      },
+      "id": "slack-fortschritt",
+      "name": "Slack: Fortschritt",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        340,
+        260
+      ],
+      "credentials": {
+        "slackApi": {
+          "id": "slack-bot-token",
+          "name": "Slack Bot Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.event }}",
+              "rightValue": "finished",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "fertig",
+      "name": "Fertig?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        340,
+        540
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const p = $input.first().json;\nconst meta = p.meta || {};\n\nconst zeilen = [];\nzeilen.push((p.ok ? '✅' : '⚠️') + ' *' + (p.projekt || 'Auftrag') + '*');\nzeilen.push('');\nzeilen.push(p.ergebnis || p.fehler || 'Keine Antwort erhalten.');\n\nif (Array.isArray(p.schritte) && p.schritte.length) {\n  zeilen.push('');\n  zeilen.push('_Schritte:_ ' + p.schritte.slice(-6).join(' · '));\n}\nif (p.git) {\n  const offen = (p.git.offene_aenderungen || []).length;\n  zeilen.push('_Git:_ ' + (p.git.branch || '?') + ' — ' + (p.git.letzter_commit || 'kein Commit')\n    + (offen ? ' · ' + offen + ' offene Änderung(en)' : ''));\n}\nconst fuss = [];\nif (p.kosten_usd != null) fuss.push(Number(p.kosten_usd).toFixed(2) + ' $');\nif (p.dauer_ms != null) fuss.push(Math.round(p.dauer_ms / 1000) + ' s');\nif (p.turns != null) fuss.push(p.turns + ' Turns');\nif (fuss.length) zeilen.push('_' + fuss.join(' · ') + '_');\n\n// Für die Sprachausgabe: nur der eigentliche Antworttext, ohne Deko.\nconst sprechtext = (p.ergebnis || p.fehler || 'Der Auftrag ist beendet.')\n  .replace(/[*_`#]/g, '')\n  .slice(0, 1200);\n\nreturn [{\n  json: {\n    text: zeilen.join('\\n'),\n    sprechtext,\n    kanal: meta.kanal,\n    status_ts: meta.status_ts,\n    thread_ts: meta.thread_ts,\n    sprachausgabe: Boolean(p.konfig?.sprachausgabe) && p.ok,\n    ttsModell: p.konfig?.ttsModell,\n    ttsStimme: p.konfig?.ttsStimme,\n  },\n}];"
+      },
+      "id": "antwort-formatieren",
+      "name": "Antwort formatieren",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        460
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "sonstiges-ereignis",
+      "name": "Sonstiges Ereignis",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        560,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.update",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "slackApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ channel: $json.kanal, ts: $json.status_ts, text: $json.text }) }}",
+        "options": {}
+      },
+      "id": "slack-ergebnis",
+      "name": "Slack: Ergebnis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        460
+      ],
+      "credentials": {
+        "slackApi": {
+          "id": "slack-bot-token",
+          "name": "Slack Bot Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $('Antwort formatieren').first().json.sprachausgabe }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "sprachausgabe",
+      "name": "Sprachausgabe?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/audio/speech",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $('Antwort formatieren').first().json.ttsModell, voice: $('Antwort formatieren').first().json.ttsStimme, input: $('Antwort formatieren').first().json.sprechtext, response_format: 'mp3' }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "id": "antwort-vertonen",
+      "name": "Antwort vertonen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1220,
+        380
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-key",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "upload",
+        "binaryData": true,
+        "binaryPropertyName": "data",
+        "options": {
+          "channelId": "={{ $('Antwort formatieren').first().json.kanal }}",
+          "fileName": "antwort.mp3",
+          "initialComment": "🔊 Antwort zum Anhören"
+        }
+      },
+      "id": "slack-sprachantwort",
+      "name": "Slack: Sprachantwort",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        1440,
+        380
+      ],
+      "credentials": {
+        "slackApi": {
+          "id": "slack-bot-token",
+          "name": "Slack Bot Token"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "ohne-sprachausgabe",
+      "name": "Ohne Sprachausgabe",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1220,
+        600
+      ]
+    }
+  ],
+  "connections": {
+    "Bridge Webhook": {
+      "main": [
+        [
+          {
+            "node": "Callback prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Callback prüfen": {
+      "main": [
+        [
+          {
+            "node": "Fortschritt?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fortschritt?": {
+      "main": [
+        [
+          {
+            "node": "Slack: Fortschritt",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fertig?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fertig?": {
+      "main": [
+        [
+          {
+            "node": "Antwort formatieren",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Sonstiges Ereignis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Antwort formatieren": {
+      "main": [
+        [
+          {
+            "node": "Slack: Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack: Ergebnis": {
+      "main": [
+        [
+          {
+            "node": "Sprachausgabe?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sprachausgabe?": {
+      "main": [
+        [
+          {
+            "node": "Antwort vertonen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ohne Sprachausgabe",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Antwort vertonen": {
+      "main": [
+        [
+          {
+            "node": "Slack: Sprachantwort",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "claude-sprachagent"
+    }
+  ]
+}

@@ -1,0 +1,350 @@
+{
+  "name": "Claude 3 · Telegram-Sprache → Bridge",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {
+          "download": false
+        }
+      },
+      "id": "telegram-trigger",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -320,
+        400
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot",
+          "name": "Telegram Bot"
+        }
+      },
+      "webhookId": "telegram-claude"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n//  ⚙️  KONFIGURATION\n// ============================================================\nconst KONFIG = {\n  bridgeUrl: 'http://claude-bridge:8790',\n  callbackUrl: 'http://n8n:5678/webhook/claude-callback-telegram',\n  // Nur diese Telegram-Chat-IDs dürfen steuern (Pflicht! sonst kann jeder,\n  // der den Bot-Namen kennt, auf der NAS bauen):\n  erlaubteChats: [],\n};\n// ============================================================\n\nconst nachricht = $input.first().json.message || $input.first().json.channel_post || {};\nconst chatId = nachricht.chat?.id;\n\nif (!KONFIG.erlaubteChats.length) {\n  throw new Error('KONFIG.erlaubteChats ist leer — bitte eigene Chat-ID eintragen.');\n}\nif (!KONFIG.erlaubteChats.map(String).includes(String(chatId))) {\n  return [];  // fremder Chat: stillschweigend verwerfen\n}\n\nconst hatSprache = Boolean(nachricht.voice || nachricht.audio);\nreturn [{\n  json: {\n    chatId,\n    messageId: nachricht.message_id,\n    hatSprache,\n    dateiId: nachricht.voice?.file_id || nachricht.audio?.file_id || null,\n    text: (nachricht.text || nachricht.caption || '').trim(),\n    konfig: KONFIG,\n  },\n}];"
+      },
+      "id": "telegram-prüfen",
+      "name": "Telegram prüfen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -100,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.hatSprache }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "sprachnachricht",
+      "name": "Sprachnachricht?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        120,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "fileId": "={{ $json.dateiId }}",
+        "download": true
+      },
+      "id": "sprachdatei-holen",
+      "name": "Sprachdatei holen",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        340,
+        300
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/audio/transcriptions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "data"
+            },
+            {
+              "name": "model",
+              "value": "gpt-4o-transcribe"
+            },
+            {
+              "name": "language",
+              "value": "de"
+            },
+            {
+              "name": "response_format",
+              "value": "json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "transkribieren",
+      "name": "Transkribieren",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        560,
+        300
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-key",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const antwort = $input.first().json;\nconst transkript = (antwort.text || antwort.transcript || '').trim();\nif (!transkript) throw new Error('Die Spracherkennung hat keinen Text geliefert.');\nreturn [{ json: { transkript, quelle: 'sprache' } }];"
+      },
+      "id": "transkript-übernehmen",
+      "name": "Transkript übernehmen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { transkript: $('Telegram prüfen').first().json.text, quelle: 'text' } }];"
+      },
+      "id": "text-übernehmen",
+      "name": "Text übernehmen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        340,
+        540
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const start = $('Telegram prüfen').first().json;\nconst KONFIG = start.konfig;\nconst transkript = ($input.first().json.transkript || '').trim();\nif (!transkript) throw new Error('Leerer Auftrag.');\n\nconst klein = transkript.toLowerCase();\nreturn [{\n  json: {\n    prompt: transkript,\n    projekt: null,\n    permission_mode: /(nur planen|erst(mal)? planen|mach (mir )?(erst )?einen plan)/.test(klein)\n      ? 'plan' : null,\n    conversation_key: `telegram:${start.chatId}`,\n    neu_starten: /(neu anfangen|von vorne|vergiss (das|alles)|neue aufgabe)/.test(klein),\n    callback_url: KONFIG.callbackUrl,\n    meta: { chat_id: start.chatId, kanal: String(start.chatId) },\n    vorschau: transkript.length > 500 ? transkript.slice(0, 500) + ' …' : transkript,\n  },\n}];"
+      },
+      "id": "auftrag-bauen",
+      "name": "Auftrag bauen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.meta.chat_id }}",
+        "text": "={{ '🎧 Verstanden: „' + $json.vorschau + '“\\nIch lege los …' }}",
+        "additionalFields": {}
+      },
+      "id": "telegram-verstanden",
+      "name": "Telegram: Verstanden",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1220,
+        420
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Telegram prüfen').first().json.konfig.bridgeUrl }}/jobs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Auftrag bauen').first().json) }}",
+        "options": {}
+      },
+      "id": "bridge-auftrag-starten",
+      "name": "Bridge: Auftrag starten",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        420
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "claude-bridge-token",
+          "name": "Claude Bridge Token"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Telegram prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram prüfen": {
+      "main": [
+        [
+          {
+            "node": "Sprachnachricht?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sprachnachricht?": {
+      "main": [
+        [
+          {
+            "node": "Sprachdatei holen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Text übernehmen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sprachdatei holen": {
+      "main": [
+        [
+          {
+            "node": "Transkribieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transkribieren": {
+      "main": [
+        [
+          {
+            "node": "Transkript übernehmen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transkript übernehmen": {
+      "main": [
+        [
+          {
+            "node": "Auftrag bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Text übernehmen": {
+      "main": [
+        [
+          {
+            "node": "Auftrag bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auftrag bauen": {
+      "main": [
+        [
+          {
+            "node": "Telegram: Verstanden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram: Verstanden": {
+      "main": [
+        [
+          {
+            "node": "Bridge: Auftrag starten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "claude-sprachagent"
+    }
+  ]
+}

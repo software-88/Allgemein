@@ -1,0 +1,175 @@
+{
+  "name": "Claude 4 · Bridge-Callback → Telegram",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "claude-callback-telegram",
+        "responseMode": "onReceived",
+        "responseData": "noData",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "id": "bridge-webhook",
+      "name": "Bridge Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -320,
+        400
+      ],
+      "webhookId": "claude-callback-telegram"
+    },
+    {
+      "parameters": {
+        "jsCode": "const eingang = $input.first();\nconst roh = Buffer.from(eingang.binary.data.data, 'base64').toString('utf8');\n\nasync function hmacHex(secret, daten) {\n  try {\n    return require('crypto').createHmac('sha256', secret).update(daten).digest('hex');\n  } catch (e) { /* WebCrypto-Weg */ }\n  const enc = new TextEncoder();\n  const key = await crypto.subtle.importKey(\n    'raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);\n  const mac = await crypto.subtle.sign('HMAC', key, enc.encode(daten));\n  return Array.from(new Uint8Array(mac)).map(b => b.toString(16).padStart(2, '0')).join('');\n}\n\nconst token = $env.BRIDGE_TOKEN || '';\nconst signatur = (eingang.json.headers || {})['x-bridge-signature'];\nif (token && signatur) {\n  let hex = null;\n  try { hex = await hmacHex(token, roh); } catch (e) { /* s. docs/SICHERHEIT.md */ }\n  if (hex !== null && `sha256=${hex}` !== signatur) {\n    throw new Error('Callback-Signatur ungültig — abgewiesen.');\n  }\n}\n\nconst p = JSON.parse(roh);\nif (p.event !== 'finished') return [];   // Fortschritt interessiert per Telegram nicht\n\nconst sprechtext = (p.ergebnis || p.fehler || 'Der Auftrag ist beendet.')\n  .replace(/[*_`#]/g, '').slice(0, 1200);\n\nreturn [{\n  json: {\n    chatId: p.meta?.chat_id,\n    text: (p.ok ? '✅ ' : '⚠️ ') + (p.ergebnis || p.fehler || 'Keine Antwort.'),\n    sprechtext,\n  },\n}];"
+      },
+      "id": "callback-prüfen",
+      "name": "Callback prüfen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -100,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "={{ $json.text }}",
+        "additionalFields": {}
+      },
+      "id": "telegram-ergebnis",
+      "name": "Telegram: Ergebnis",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        120,
+        400
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/audio/speech",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'gpt-4o-mini-tts', voice: 'alloy', input: $('Callback prüfen').first().json.sprechtext, response_format: 'mp3' }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "id": "antwort-vertonen",
+      "name": "Antwort vertonen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        340,
+        400
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-key",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "sendAudio",
+        "chatId": "={{ $('Callback prüfen').first().json.chatId }}",
+        "binaryData": true,
+        "binaryPropertyName": "data",
+        "additionalFields": {
+          "fileName": "antwort.mp3"
+        }
+      },
+      "id": "telegram-sprachantwort",
+      "name": "Telegram: Sprachantwort",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        560,
+        400
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot",
+          "name": "Telegram Bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Bridge Webhook": {
+      "main": [
+        [
+          {
+            "node": "Callback prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Callback prüfen": {
+      "main": [
+        [
+          {
+            "node": "Telegram: Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram: Ergebnis": {
+      "main": [
+        [
+          {
+            "node": "Antwort vertonen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Antwort vertonen": {
+      "main": [
+        [
+          {
+            "node": "Telegram: Sprachantwort",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "claude-sprachagent"
+    }
+  ]
+}

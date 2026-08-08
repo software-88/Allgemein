@@ -1,0 +1,61 @@
+# Slack-App-Manifest fuer den Sprachagenten.
+#
+# Anlegen: https://api.slack.com/apps -> "Create New App" -> "From a manifest"
+# -> Workspace waehlen -> diesen Text einfuegen.
+#
+# Vorher die beiden URLs anpassen (zweimal derselbe n8n-Webhook aus
+# Workflow 1). Die Test-URL von n8n endet auf /webhook-test/, die
+# produktive auf /webhook/ — hier gehoert die produktive hin.
+
+display_information:
+  name: Bau-Agent
+  description: Sprachgesteuerter Bau-Agent auf der Synology (Claude Code)
+  background_color: "#1f2933"
+  long_description: >-
+    Nimmt Sprachnachrichten und Textnachrichten entgegen, laesst Claude Code
+    auf der eigenen Synology-NAS daran arbeiten und meldet das Ergebnis
+    zurueck in den Thread.
+
+features:
+  bot_user:
+    display_name: Bau-Agent
+    always_online: true
+  app_home:
+    home_tab_enabled: false
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: false
+
+oauth_config:
+  scopes:
+    bot:
+      # Nachrichten lesen, in denen der Bot erwaehnt wird
+      - app_mentions:read
+      # Direktnachrichten an den Bot lesen und beantworten
+      - im:history
+      - im:read
+      - im:write
+      # Kanalverlauf, falls der Agent in einem Kanal mitarbeiten soll
+      - channels:history
+      - groups:history
+      # Antworten schreiben und Statusmeldungen aktualisieren
+      - chat:write
+      # Sprachnachrichten herunterladen …
+      - files:read
+      # … und optional die vertonte Antwort hochladen
+      - files:write
+
+settings:
+  event_subscriptions:
+    # >>> ANPASSEN <<<  Webhook-URL aus Workflow 1 (Node "Slack Webhook")
+    request_url: https://n8n.meine-domain.de/webhook/slack-events
+    bot_events:
+      # Direktnachricht an den Bot
+      - message.im
+      # Erwaehnung in einem Kanal
+      - app_mention
+  interactivity:
+    # Wird erst gebraucht, wenn Buttons (z. B. "Abbrechen") ergaenzt werden.
+    is_enabled: false
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false
