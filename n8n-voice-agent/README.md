@@ -32,16 +32,32 @@ headless (`claude -p`) startet, den Fortschritt mitliest und Ergebnisse
 zurueckmeldet. n8n macht nur noch das, was n8n gut kann: Nachrichten
 entgegennehmen, Audio durch die Spracherkennung schicken, antworten.
 
+## Zwei Betriebsarten
+
+|  | **Lokal** (Telegram-Abruf) | **Slack** |
+| --- | --- | --- |
+| Eingehende Ports | **keine** | n8n muss oeffentlich per HTTPS erreichbar sein |
+| Warum | n8n fragt bei Telegram selbst nach (`getUpdates`) | Slack stellt Ereignisse per Push zu |
+| Zusaetzlich noetig | nichts | Reverse-Proxy oder Tunnel, Zertifikat, Slack-App |
+| Workflows | `05` + `04` | `01` + `02` |
+| Anleitung | **[docs/LOKAL.md](docs/LOKAL.md)** | [docs/EINRICHTUNG.md](docs/EINRICHTUNG.md) |
+
+Die Bridge ist in beiden Faellen nur im Docker-Netz erreichbar — nie aus dem
+LAN und nie aus dem Internet. Wer maximal geschlossen fahren will, nimmt die
+lokale Betriebsart und schaltet die Spracherkennung auf das Profil
+`lokal-stt`; dann verlaesst nur noch der eigentliche Denkschritt das Haus
+(Anthropic-API). Was genau wohin geht, steht in [docs/LOKAL.md](docs/LOKAL.md).
+
 ## Was drin ist
 
 | Verzeichnis | Inhalt |
 | --- | --- |
 | `bridge/` | Die Claude-Bridge: FastAPI + Claude-CLI in einem Docker-Image, inkl. Tests |
 | `bridge/config/` | `projects.yaml` (welche Projekte, welche Rechte) und der Basis-Systemprompt |
-| `n8n/` | Vier importierbare Workflows (Slack rein/raus, Telegram rein/raus) |
+| `n8n/` | Fuenf importierbare Workflows (Slack rein/raus, Telegram per Webhook oder Abruf, Antwortweg) |
 | `slack/manifest.yml` | Slack-App zum Einlesen statt Klicken |
 | `docker-compose.yml` | n8n + Bridge (+ optional lokale Spracherkennung, Cloudflare-Tunnel) |
-| `docs/` | [Einrichtung](docs/EINRICHTUNG.md) · [Sicherheit](docs/SICHERHEIT.md) · [Betrieb](docs/BETRIEB.md) |
+| `docs/` | [Lokal](docs/LOKAL.md) · [Einrichtung](docs/EINRICHTUNG.md) · [Sicherheit](docs/SICHERHEIT.md) · [Betrieb](docs/BETRIEB.md) |
 
 ## Was es kann
 
@@ -68,11 +84,11 @@ entgegennehmen, Audio durch die Spracherkennung schicken, antworten.
 - Synology mit DSM 7.2+ und **Container Manager** (x86-64; auf ARM-Modellen
   laeuft das Image nicht)
 - ~2 GB RAM frei fuer n8n + Bridge, mehr bei lokaler Spracherkennung
-- Eine von aussen erreichbare HTTPS-Adresse fuer n8n (DSM-Reverse-Proxy mit
-  Let's-Encrypt-Zertifikat oder der mitgelieferte Cloudflare-Tunnel) —
-  Slack muss Ereignisse zustellen koennen
 - Ein Claude-Zugang: Abo-Token (`claude setup-token`) **oder** API-Schluessel
 - Optional ein OpenAI-Schluessel fuer Spracherkennung/Sprachausgabe
+- **Nur fuer die Slack-Betriebsart:** eine von aussen erreichbare
+  HTTPS-Adresse fuer n8n (DSM-Reverse-Proxy mit Let's-Encrypt-Zertifikat oder
+  der mitgelieferte Cloudflare-Tunnel). Im lokalen Betrieb entfaellt das.
 
 ## Schnellstart
 
@@ -91,9 +107,10 @@ docker compose up -d --build
 docker compose logs -f claude-bridge      # "[bridge] bereit — Projekte: …"
 ```
 
-Danach die vier Workflows in n8n importieren und die Slack-App anlegen:
-**[docs/EINRICHTUNG.md](docs/EINRICHTUNG.md)** fuehrt Schritt fuer Schritt
-durch beides.
+Danach die Workflows in n8n importieren:
+
+- **lokal, ohne offenen Port** → **[docs/LOKAL.md](docs/LOKAL.md)**
+- **mit Slack** → [docs/EINRICHTUNG.md](docs/EINRICHTUNG.md) (Schritt 6 an)
 
 ## Entwicklung an der Bridge
 

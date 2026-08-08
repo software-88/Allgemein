@@ -5,6 +5,18 @@ Nachrichten aus dem Internet. Das ist beherrschbar, aber nicht nebenbei. Dieses
 Dokument sagt, was das System tut, was es bewusst nicht tut, und wo die
 Restrisiken liegen.
 
+## Zuerst: die Angriffsflaeche verkleinern
+
+Der wirksamste Schutz ist der, den es gar nicht zu umgehen gibt. Im **lokalen
+Betrieb** (Telegram-Abruf, Workflow 5) gibt es **keinen eingehenden Port** —
+n8n fragt selbst nach, statt sich etwas zustellen zu lassen. Damit entfaellt
+alles, was in diesem Dokument unter „Ist die Nachricht echt?" steht, weil
+niemand von aussen etwas schicken kann. Wie das eingerichtet wird und was
+trotzdem noch das Haus verlaesst: **[LOKAL.md](LOKAL.md)**.
+
+Alles Folgende gilt fuer beide Betriebsarten — im Slack-Betrieb ist es die
+einzige Verteidigung, im lokalen Betrieb die zweite Schicht.
+
 ## Die Kette der Leitplanken
 
 **1. Wer darf ueberhaupt reden?**

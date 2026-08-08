@@ -1,5 +1,11 @@
 # Einrichtung Schritt fuer Schritt
 
+> **Willst du gar keinen Port nach aussen oeffnen?** Dann sind hier nur die
+> **Schritte 1–5** relevant, danach geht es in **[LOKAL.md](LOKAL.md)** weiter
+> (Telegram im Abrufbetrieb). Die Schritte 6 und 7 — Reverse-Proxy und
+> Slack-App — braucht ausschliesslich der Slack-Weg, weil Slack Ereignisse per
+> Push zustellt und dafuer eine oeffentliche Adresse verlangt.
+
 Reihenfolge einhalten — Slack prueft die Webhook-Adresse sofort, deshalb muss
 n8n vorher laufen und erreichbar sein.
 
@@ -122,9 +128,10 @@ curl -s -H "X-Bridge-Token: $BRIDGE_TOKEN" localhost:8790/jobs/<job_id>' | jq
 
 Laeuft das, ist der schwierige Teil erledigt — der Rest ist Verkabelung.
 
-## 6. n8n von aussen erreichbar machen
+## 6. n8n von aussen erreichbar machen — *nur fuer den Slack-Weg*
 
-Slack stellt Ereignisse nur an oeffentliche HTTPS-Adressen zu.
+Slack stellt Ereignisse nur an oeffentliche HTTPS-Adressen zu. Wer das nicht
+will, hoert hier auf und macht mit [LOKAL.md](LOKAL.md) weiter.
 
 **Variante a — DSM-Reverse-Proxy** (wenn du eine eigene Domain und ein
 Let's-Encrypt-Zertifikat auf der NAS hast):
@@ -236,6 +243,12 @@ Antwortet nichts, hilft die Fehlersuche in [BETRIEB.md](BETRIEB.md).
 
 Telegram ist fuers Diktieren unterwegs oft angenehmer und kann die Antwort
 direkt als Sprachnachricht zurueckschicken.
+
+> Der hier beschriebene Workflow 3 arbeitet mit **Webhook** — er braucht also
+> ebenfalls die oeffentliche Adresse aus Schritt 6. Ohne offenen Port gibt es
+> denselben Weg als **Abrufbetrieb** (Workflow 5): [LOKAL.md](LOKAL.md).
+> **Niemals beide gleichzeitig aktivieren** — Webhook und Abruf schliessen
+> sich bei Telegram gegenseitig aus.
 
 1. In Telegram bei `@BotFather` mit `/newbot` einen Bot anlegen, Token notieren.
 2. In n8n eine Credential **`Telegram Bot`** (Typ: Telegram) mit dem Token anlegen.

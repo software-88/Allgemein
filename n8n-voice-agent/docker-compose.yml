@@ -13,16 +13,20 @@ services:
     container_name: n8n
     restart: unless-stopped
     ports:
-      - "${N8N_PORT:-5678}:5678"
+      # Nur im LAN erreichbar, solange im Router nichts weitergeleitet wird.
+      # N8N_BIND=127.0.0.1 schraenkt weiter ein: dann kommt nur die NAS selbst
+      # heran (Zugriff dann per SSH-Tunnel oder DSM-Reverse-Proxy).
+      - "${N8N_BIND:-0.0.0.0}:${N8N_PORT:-5678}:5678"
     environment:
       TZ: ${TZ:-Europe/Berlin}
       GENERIC_TIMEZONE: ${TZ:-Europe/Berlin}
-      # Muss die von aussen erreichbare URL sein, sonst registriert Slack
-      # falsche Webhook-Adressen:
-      N8N_HOST: ${N8N_HOST}
-      N8N_PROTOCOL: ${N8N_PROTOCOL:-https}
-      WEBHOOK_URL: ${N8N_PUBLIC_URL}
-      N8N_EDITOR_BASE_URL: ${N8N_PUBLIC_URL}
+      # Nur fuer den Slack-Weg noetig: dort muss die oeffentliche Adresse
+      # stehen, sonst registriert Slack falsche Webhook-Adressen.
+      # Im lokalen Betrieb (Telegram-Abruf) koennen die Werte leer bleiben.
+      N8N_HOST: ${N8N_HOST:-localhost}
+      N8N_PROTOCOL: ${N8N_PROTOCOL:-http}
+      WEBHOOK_URL: ${N8N_PUBLIC_URL:-http://n8n:5678/}
+      N8N_EDITOR_BASE_URL: ${N8N_PUBLIC_URL:-}
       # Verschluesselt die gespeicherten Credentials. NIE nachtraeglich aendern,
       # sonst sind alle hinterlegten Zugaenge unbrauchbar.
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
@@ -30,6 +34,8 @@ services:
       N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
       NODE_FUNCTION_ALLOW_BUILTIN: crypto
       SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
+      # Fuer den lokalen Telegram-Abruf (Workflow 5):
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       BRIDGE_TOKEN: ${BRIDGE_TOKEN}
       N8N_DIAGNOSTICS_ENABLED: "false"
       N8N_RUNNERS_ENABLED: "true"
