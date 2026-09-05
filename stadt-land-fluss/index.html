@@ -1,0 +1,255 @@
+<title>Stadt Land Fluss</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Schoolbell&display=swap">
+<style>
+  :root {
+    --paper: #fdfdf8;
+    --grid: rgba(80, 125, 200, 0.16);
+    --ink: #1d3a8f;
+    --ink-soft: #5a6da8;
+    --accent: #c1121f;
+    --accent-ink: #ffffff;
+    --card: rgba(255, 255, 255, 0.72);
+    --card-edge: rgba(29, 58, 143, 0.25);
+    --chip-done: rgba(29, 58, 143, 0.38);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #1e2a24;
+      --grid: rgba(220, 235, 225, 0.07);
+      --ink: #f2f5ec;
+      --ink-soft: #a8b8ac;
+      --accent: #e8c547;
+      --accent-ink: #22301f;
+      --card: rgba(255, 255, 255, 0.045);
+      --card-edge: rgba(242, 245, 236, 0.28);
+      --chip-done: rgba(242, 245, 236, 0.3);
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #1e2a24;
+    --grid: rgba(220, 235, 225, 0.07);
+    --ink: #f2f5ec;
+    --ink-soft: #a8b8ac;
+    --accent: #e8c547;
+    --accent-ink: #22301f;
+    --card: rgba(255, 255, 255, 0.045);
+    --card-edge: rgba(242, 245, 236, 0.28);
+    --chip-done: rgba(242, 245, 236, 0.3);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem 1rem;
+    color: var(--ink);
+    background:
+      linear-gradient(var(--grid) 1px, transparent 1px) 0 0 / 100% 26px,
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0 / 26px 100%,
+      var(--paper);
+    font-family: "Schoolbell", "Comic Sans MS", cursive;
+  }
+
+  main { width: min(30rem, 100%); text-align: center; }
+
+  h1 {
+    font-family: "Caveat", cursive;
+    font-weight: 700;
+    font-size: clamp(2.4rem, 8vw, 3.2rem);
+    margin: 0 0 0.2rem;
+    text-wrap: balance;
+    transform: rotate(-1.5deg);
+  }
+  .sub {
+    margin: 0 0 1.6rem;
+    color: var(--ink-soft);
+    font-size: 1.05rem;
+  }
+
+  .card {
+    background: var(--card);
+    border: 2px solid var(--card-edge);
+    border-radius: 6px 14px 8px 12px / 12px 6px 14px 8px;
+    padding: 1.6rem 1.4rem 1.8rem;
+    box-shadow: 0 2px 0 var(--card-edge);
+  }
+
+  #letter {
+    font-family: "Caveat", cursive;
+    font-weight: 700;
+    font-size: clamp(8rem, 38vw, 12rem);
+    line-height: 1;
+    min-height: 1em;
+    display: block;
+    user-select: none;
+  }
+  #letter.landed { animation: land 0.35s ease-out; }
+  @keyframes land {
+    0%   { transform: scale(1.35) rotate(-4deg); opacity: 0.3; }
+    100% { transform: scale(1) rotate(0deg); opacity: 1; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #letter.landed { animation: none; }
+  }
+
+  button {
+    font-family: "Caveat", cursive;
+    font-weight: 700;
+    font-size: 1.7rem;
+    padding: 0.35rem 1.8rem 0.5rem;
+    margin-top: 1rem;
+    color: var(--accent-ink);
+    background: var(--accent);
+    border: none;
+    border-radius: 10px 4px 12px 6px / 5px 11px 5px 12px;
+    cursor: pointer;
+    transform: rotate(-1deg);
+    transition: transform 0.1s ease;
+  }
+  button:hover { transform: rotate(-1deg) scale(1.05); }
+  button:active { transform: rotate(-1deg) scale(0.97); }
+  button:focus-visible { outline: 3px dashed var(--ink); outline-offset: 3px; }
+  button:disabled { opacity: 0.55; cursor: default; }
+
+  .options {
+    margin-top: 1.3rem;
+    font-size: 1rem;
+    color: var(--ink-soft);
+    display: flex;
+    justify-content: center;
+    gap: 0.4rem;
+    align-items: center;
+  }
+  .options input { accent-color: var(--accent); width: 1.05rem; height: 1.05rem; }
+
+  #used {
+    margin-top: 1.4rem;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.3rem 0.55rem;
+    min-height: 1.4rem;
+    font-family: "Caveat", cursive;
+    font-size: 1.35rem;
+  }
+  #used span { color: var(--chip-done); text-decoration: line-through 2px; }
+  #used span.current { color: var(--accent); text-decoration: none; }
+
+  #status { color: var(--ink-soft); font-size: 0.95rem; margin: 0.9rem 0 0; }
+
+  #reset {
+    background: none;
+    border: none;
+    color: var(--ink-soft);
+    font-size: 1.15rem;
+    text-decoration: underline;
+    padding: 0.2rem 0.5rem;
+    transform: none;
+    margin-top: 0.4rem;
+  }
+  #reset:hover { color: var(--ink); transform: none; }
+</style>
+
+<main>
+  <h1>Stadt, Land, Fluss</h1>
+  <p class="sub">Buchstaben-Generator — jeder Buchstabe nur einmal pro Runde</p>
+
+  <div class="card">
+    <span id="letter" aria-live="polite">?</span>
+    <div>
+      <button id="draw">Buchstabe ziehen!</button>
+    </div>
+    <label class="options">
+      <input type="checkbox" id="skipHard" checked>
+      Q, X und Y auslassen
+    </label>
+    <div id="used" aria-label="Bereits gezogene Buchstaben"></div>
+    <p id="status"></p>
+    <button id="reset" hidden>Neue Runde starten</button>
+  </div>
+</main>
+
+<script>
+  const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+  const HARD = new Set(["Q", "X", "Y"]);
+
+  const letterEl = document.getElementById("letter");
+  const drawBtn  = document.getElementById("draw");
+  const resetBtn = document.getElementById("reset");
+  const usedEl   = document.getElementById("used");
+  const statusEl = document.getElementById("status");
+  const skipHard = document.getElementById("skipHard");
+
+  let used = [];
+  let spinning = false;
+  const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function pool() {
+    return ALPHABET.filter(l => !used.includes(l) && !(skipHard.checked && HARD.has(l)));
+  }
+
+  function render() {
+    usedEl.innerHTML = "";
+    used.forEach((l, i) => {
+      const s = document.createElement("span");
+      s.textContent = l;
+      if (i === used.length - 1) s.classList.add("current");
+      usedEl.appendChild(s);
+    });
+    const left = pool().length;
+    if (used.length === 0) {
+      statusEl.textContent = "";
+    } else if (left === 0) {
+      statusEl.textContent = "Alle Buchstaben gezogen — Runde vorbei!";
+    } else {
+      statusEl.textContent = left + (left === 1 ? " Buchstabe übrig" : " Buchstaben übrig");
+    }
+    drawBtn.disabled = left === 0 || spinning;
+    resetBtn.hidden = used.length === 0;
+  }
+
+  function draw() {
+    const candidates = pool();
+    if (candidates.length === 0 || spinning) return;
+    const pick = candidates[Math.floor(Math.random() * candidates.length)];
+
+    if (reducedMotion) return land(pick);
+
+    spinning = true;
+    drawBtn.disabled = true;
+    letterEl.classList.remove("landed");
+    let ticks = 0;
+    const spin = setInterval(() => {
+      letterEl.textContent = ALPHABET[Math.floor(Math.random() * ALPHABET.length)];
+      if (++ticks >= 12) { clearInterval(spin); land(pick); }
+    }, 70);
+  }
+
+  function land(pick) {
+    spinning = false;
+    letterEl.textContent = pick;
+    letterEl.classList.add("landed");
+    used.push(pick);
+    render();
+  }
+
+  drawBtn.addEventListener("click", draw);
+  resetBtn.addEventListener("click", () => {
+    used = [];
+    letterEl.textContent = "?";
+    letterEl.classList.remove("landed");
+    render();
+  });
+  skipHard.addEventListener("change", render);
+  document.addEventListener("keydown", e => {
+    if (e.code === "Space" && document.activeElement.tagName !== "INPUT") {
+      e.preventDefault();
+      draw();
+    }
+  });
+
+  render();
+</script>
