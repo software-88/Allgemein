@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Pilot Auftrag und Tagesrapport</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Instrument+Sans:wght@400;500;600&display=swap">
+<style>body{margin:0}[hidden]{display:none!important}</style>
+<style>
+/* Layout: eine Frage pro Bildschirm, schmale Spalte fürs Handy, Fortschritt als Zollstock oben */
+:root{
+  --bg:#f1f4ef; --surface:#ffffff; --fg:#17211b; --muted:#5a6960; --line:#d3dad2;
+  --accent:#1f5c3d; --accent-fg:#ffffff; --rule:#f2c230; --rule-ink:#3a2f00; --warn:#a33b1e;
+  --display:"Bricolage Grotesque","Arial Narrow",system-ui,sans-serif;
+  --body:"Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#111713; --surface:#1a221d; --fg:#e8ede8; --muted:#9aa89e; --line:#2f3b33;
+  --accent:#74c598; --accent-fg:#0d1a12; --rule:#e0b324; --rule-ink:#2a2200; --warn:#f08a6c; color-scheme:dark } }
+:root[data-theme="dark"]{
+  --bg:#111713; --surface:#1a221d; --fg:#e8ede8; --muted:#9aa89e; --line:#2f3b33;
+  --accent:#74c598; --accent-fg:#0d1a12; --rule:#e0b324; --rule-ink:#2a2200; --warn:#f08a6c; color-scheme:dark }
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:400 17px/1.5 var(--body);padding-inline:18px;padding-block:20px 48px}
+.wrap{max-width:34rem;margin-inline:auto;display:flex;flex-direction:column;gap:22px}
+.brand{font:600 13px/1 var(--body);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+/* Zollstock */
+.rule{height:22px;border-radius:3px;background:var(--surface);border:1px solid var(--line);overflow:hidden;position:relative}
+.rule i{display:block;height:100%;background:
+  repeating-linear-gradient(90deg,transparent 0 9px,var(--rule-ink) 9px 10px),var(--rule);
+  background-size:auto 45%,auto;background-repeat:repeat-x,no-repeat;transition:width .25s ease}
+.rule span{position:absolute;right:8px;top:0;line-height:20px;font:600 12px/20px var(--body);color:var(--muted);font-variant-numeric:tabular-nums}
+@media (prefers-reduced-motion:reduce){.rule i{transition:none}}
+h1{font:800 clamp(1.7rem,7vw,2.3rem)/1.08 var(--display);margin:0;text-wrap:balance}
+.hint{color:var(--muted);margin:0}
+.block{display:flex;flex-direction:column;gap:10px}
+.label{font:600 14px/1.3 var(--body);color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font:500 16px/1.2 var(--body);padding:11px 14px;border-radius:999px;border:1.5px solid var(--line);background:var(--surface);color:var(--fg);cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
+textarea{width:100%;min-height:104px;font:400 17px/1.45 var(--body);padding:12px 14px;border-radius:10px;border:1.5px solid var(--line);background:var(--surface);color:var(--fg);resize:vertical}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.hours{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.hours b{font:800 1.5rem/1 var(--display);font-variant-numeric:tabular-nums}
+:focus-visible{outline:3px solid var(--rule);outline-offset:2px}
+.nav{display:flex;gap:10px;flex-wrap:wrap}
+.btn{font:600 17px/1 var(--body);padding:15px 20px;border-radius:10px;border:1.5px solid var(--line);background:transparent;color:var(--fg);cursor:pointer;text-decoration:none;text-align:center}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg);flex:1 1 12rem}
+.btn:disabled{opacity:.55;cursor:default}
+.summary{white-space:pre-wrap;font:400 15px/1.5 var(--body);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:0;max-height:22rem;overflow:auto;user-select:all;-webkit-user-select:all}
+.note{font-size:14px;color:var(--muted);margin:0}
+.note.warn{color:var(--warn)}
+.log{display:flex;flex-direction:column;gap:10px}
+.msg{padding:12px 14px;border-radius:14px;max-width:88%;white-space:pre-wrap;overflow-wrap:anywhere}
+.msg.ai{background:var(--surface);border:1px solid var(--line);align-self:flex-start;border-bottom-left-radius:4px}
+.msg.me{background:var(--accent);color:var(--accent-fg);align-self:flex-end;border-bottom-right-radius:4px}
+.who{font:600 13px/1 var(--body);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+</style>
+<style>
+.tabs{display:flex;gap:8px}
+.tab{flex:1;font:600 15px/1.2 var(--body);padding:12px 10px;border-radius:10px;border:1.5px solid var(--line);background:var(--surface);color:var(--fg);cursor:pointer}
+.tab[aria-selected="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+h2{font:800 1.45rem/1.15 var(--display);margin:0;text-wrap:balance}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:8px}
+.kv{display:grid;grid-template-columns:7.5rem 1fr;gap:4px 12px;font-size:15px}
+.kv dt{color:var(--muted)}.kv dd{margin:0;min-width:0;overflow-wrap:anywhere}
+dl{margin:0}
+.field{display:flex;flex-direction:column;gap:6px}
+.field input[type=text],.field input[type=time],.field input[type=number]{font:400 17px/1.4 var(--body);padding:11px 13px;border-radius:10px;border:1.5px solid var(--line);background:var(--surface);color:var(--fg);width:100%}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.flag{font:600 13px/1.2 var(--body);padding:5px 9px;border-radius:6px;background:var(--rule);color:var(--rule-ink);align-self:flex-start}
+.flag.ok{background:transparent;border:1px solid var(--line);color:var(--muted)}
+.proto{font-size:13px;color:var(--muted);border:1px dashed var(--line);border-radius:8px;padding:8px 10px;margin:0}
+textarea.sm{min-height:76px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">Pilot Gartenbau · Auftrag und Tagesrapport</div>
+  <p class="proto">Prototyp zum Ausprobieren. Alles bleibt auf diesem Handy, es wird nichts verschickt. Du kannst beide Rollen selbst durchspielen.</p>
+  <div class="tabs" role="tablist">
+    <button class="tab" id="tab-chef" role="tab" type="button">Chef</button>
+    <button class="tab" id="tab-vor" role="tab" type="button">Vorarbeiter</button>
+    <button class="tab" id="tab-abg" role="tab" type="button">Abgleich</button>
+  </div>
+  <main id="stage" class="block" style="gap:18px"></main>
+</div>
+<script>
+(function(){
+var KEY="pilot-proto-v1";
+var MASCH=["Minibagger","Radlader","Rüttelplatte","Pritsche","Anhänger","Häcksler","Motorsäge","Hubsteiger"];
+var S={view:"chef",auftrag:null,rapport:null};
+try{var raw=localStorage.getItem(KEY);if(raw){var p=JSON.parse(raw);if(p&&p.view)S=p;}}catch(e){}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){}}
+var stage=document.getElementById("stage");
+function el(t,c,x){var e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e;}
+function btn(x,c,f){var b=el("button","btn"+(c?" "+c:""),x);b.type="button";b.onclick=f;return b;}
+function field(id,label,type,val,ph){var w=el("div","field"),l=el("label","label",label),i=el(type==="area"?"textarea":"input");
+  i.id=id;l.htmlFor=id;if(type==="area"){i.className="sm";}else{i.type=type;}i.value=val||"";if(ph)i.placeholder=ph;w.append(l,i);return w;}
+function chips(label,opts,sel){var w=el("div","block");w.append(el("div","label",label));var r=el("div","chips");
+  opts.forEach(function(o){var c=el("button","chip",o);c.type="button";c.setAttribute("aria-pressed",sel.indexOf(o)>=0);
+    c.onclick=function(){var k=sel.indexOf(o);if(k>=0)sel.splice(k,1);else sel.push(o);c.setAttribute("aria-pressed",sel.indexOf(o)>=0);};r.append(c);});
+  w.append(r);return w;}
+function v(id){var e=document.getElementById(id);return e?e.value.trim():"";}
+function kv(pairs){var d=el("dl","kv");pairs.forEach(function(p){if(!p[1])return;d.append(el("dt",null,p[0]),el("dd",null,p[1]));});return d;}
+function mins(a,b){if(!a||!b)return null;var x=a.split(":"),y=b.split(":");var m=(+y[0]*60+ +y[1])-(+x[0]*60+ +x[1]);return m>0?m:null;}
+function hm(m){return m==null?"–":Math.floor(m/60)+" Std. "+("0"+m%60).slice(-2)+" Min.";}
+function go(vw){S.view=vw;save();render();window.scrollTo(0,0);}
+function auftragCard(a){var c=el("div","card");c.append(el("div","label","Arbeitsauftrag für "+a.kolonne+" · "+a.tag));
+  c.append(kv([["Baustelle",a.baustelle],["Aufgabe",a.aufgabe],["Maschinen",a.maschinen.join(", ")],["Material",a.material],["Achtung",a.hinweis]]));return c;}
+
+function chef(){
+  stage.append(el("h2",null,"Auftrag für morgen"));
+  stage.append(el("p","hint","Statt Zettel und Zuruf: einmal eintragen oder diktieren, der Vorarbeiter hat es sauber auf dem Handy."));
+  var a=S.auftrag||{kolonne:"Max",tag:"morgen",baustelle:"",aufgabe:"",maschinen:[],material:"",hinweis:""};
+  var sel=a.maschinen.slice();
+  var r=el("div","row2");r.append(field("a-kol","Kolonne / Vorarbeiter","text",a.kolonne),field("a-tag","Tag","text",a.tag));
+  stage.append(r,field("a-bau","Baustelle","text",a.baustelle,"z. B. Müller, Lindenstraße 4"),
+    field("a-auf","Was ist zu tun?","area",a.aufgabe,"z. B. Terrasse auskoffern, 25 m² Tragschicht einbauen und abrütteln"),
+    chips("Maschinen und Geräte",MASCH,sel),
+    field("a-mat","Baumaterial","text",a.material,"z. B. 8 t Schotter 0/32, 30 m Randsteine"),
+    field("a-hin","Worauf achten?","area",a.hinweis,"z. B. Kunde ist ab 10 Uhr da, Leitung im Beet links"));
+  var msg=el("p","note","");
+  var n=el("div","nav");n.append(btn(S.auftrag?"Auftrag aktualisieren":"Auftrag an Vorarbeiter senden","primary",function(){
+    if(!v("a-bau")||!v("a-auf")){msg.className="note warn";msg.textContent="Baustelle und Aufgabe fehlen noch.";return;}
+    S.auftrag={kolonne:v("a-kol")||"Max",tag:v("a-tag")||"morgen",baustelle:v("a-bau"),aufgabe:v("a-auf"),maschinen:sel,material:v("a-mat"),hinweis:v("a-hin")};
+    go("vor");}));
+  stage.append(n,msg);
+  if(!S.auftrag){var n2=el("div","nav");n2.append(btn("Beispiel einfüllen","",function(){
+    S.auftrag={kolonne:"Max",tag:"morgen",baustelle:"Müller, Lindenstraße 4",aufgabe:"Terrasse auskoffern, 25 m² Tragschicht einbauen und abrütteln. Randsteine setzen.",maschinen:["Minibagger","Rüttelplatte","Pritsche"],material:"8 t Schotter 0/32, 30 m Randsteine",hinweis:"Kunde ist ab 10 Uhr da. Leitung im Beet links."};save();render();}));stage.append(n2);}
+}
+function vor(){
+  stage.append(el("h2",null,"Dein Tag"));
+  if(!S.auftrag){stage.append(el("p","hint","Noch kein Auftrag da. Leg zuerst unter „Chef“ einen an."));var n0=el("div","nav");n0.append(btn("Zum Chef","primary",function(){go("chef");}));stage.append(n0);return;}
+  stage.append(auftragCard(S.auftrag));
+  stage.append(el("h2",null,"Tagesrapport"));
+  stage.append(el("p","hint","Abends eine Minute. Im echten Betrieb sprichst du das einfach ein, hier tippst oder diktierst du über das Mikro auf der Tastatur."));
+  var r=S.rapport||{beginn:"07:00",an:"07:30",ab:"16:00",ende:"16:30",leute:"3",maschinen:S.auftrag.maschinen.slice(),material:"",notiz:"",zusatz:""};
+  var sel=r.maschinen.slice();
+  var r1=el("div","row2");r1.append(field("r-beg","Arbeitsbeginn","time",r.beginn),field("r-end","Arbeitsende","time",r.ende));
+  var r2=el("div","row2");r2.append(field("r-an","Start Baustelle","time",r.an),field("r-ab","Ende Baustelle","time",r.ab));
+  stage.append(r1,r2,field("r-leu","Wie viele Leute?","number",r.leute),
+    chips("Maschinen und Geräte im Einsatz",MASCH,sel),
+    field("r-mat","Verbautes Baumaterial","text",r.material,"z. B. 9 t Schotter, 30 m Randsteine"),
+    field("r-not","Notizen","area",r.notiz,"Was war, was ist offen?"),
+    field("r-zus","Zusätzlich gemacht, was nicht im Auftrag stand?","area",r.zusatz,"z. B. alte Betonplatte abgebrochen und entsorgt"));
+  var n=el("div","nav");n.append(btn("Rapport abgeben","primary",function(){
+    S.rapport={beginn:v("r-beg"),an:v("r-an"),ab:v("r-ab"),ende:v("r-end"),leute:v("r-leu")||"1",maschinen:sel,material:v("r-mat"),notiz:v("r-not"),zusatz:v("r-zus")};go("abg");}));
+  stage.append(n);
+}
+function abg(){
+  stage.append(el("h2",null,"Abgleich: geplant und gemacht"));
+  if(!S.auftrag||!S.rapport){stage.append(el("p","hint","Hier siehst du morgens auf einen Blick, was anders lief als geplant. Dafür braucht es einen Auftrag und einen Rapport."));
+    var n0=el("div","nav");n0.append(btn(S.auftrag?"Zum Vorarbeiter":"Zum Chef","primary",function(){go(S.auftrag?"vor":"chef");}));stage.append(n0);return;}
+  var a=S.auftrag,r=S.rapport,ges=mins(r.beginn,r.ende),bau=mins(r.an,r.ab),leute=Math.max(1,parseInt(r.leute,10)||1);
+  var c=el("div","card");c.append(el("div","label",a.baustelle+" · Kolonne "+a.kolonne));
+  c.append(kv([["Arbeitszeit",hm(ges)+" je Mann"],["Auf der Baustelle",hm(bau)],["Fahrt und Rüsten",ges!=null&&bau!=null?hm(ges-bau):"–"],["Leute",String(leute)],["Lohnstunden",ges!=null?(Math.round(ges*leute/6)/10+" Std.").replace(".",","):"–"],["Material",r.material],["Notizen",r.notiz]]));
+  stage.append(c);
+  var f=el("div","card");f.append(el("div","label","Auffälligkeiten"));var any=false;
+  var mehr=r.maschinen.filter(function(m){return a.maschinen.indexOf(m)<0;}),wen=a.maschinen.filter(function(m){return r.maschinen.indexOf(m)<0;});
+  if(r.zusatz){any=true;f.append(el("span","flag","Möglicher Nachtrag"),el("div",null,r.zusatz));}
+  if(mehr.length){any=true;f.append(el("span","flag","Zusätzliche Maschinen"),el("div",null,mehr.join(", ")));}
+  if(wen.length){any=true;f.append(el("span","flag","Geplant, aber nicht genutzt"),el("div",null,wen.join(", ")));}
+  if(a.material&&r.material&&a.material.toLowerCase()!==r.material.toLowerCase()){any=true;f.append(el("span","flag","Material weicht ab"),el("div",null,"Geplant: "+a.material+" · Verbaut: "+r.material));}
+  if(!any)f.append(el("span","flag ok","Alles wie geplant"));
+  stage.append(f);
+  stage.append(el("p","hint","Im echten Betrieb formuliert die KI aus der Zusatzarbeit gleich die Nachtragsanzeige und legt sie dir zur Freigabe hin."));
+  var fb="Feedback zum Prototyp Auftrag und Tagesrapport:\n\nWas passt:\n\nWas fehlt:\n\nWürde Max das nutzen?";
+  var wa=el("a","btn primary","Feedback per WhatsApp an Jan");wa.href="https://wa.me/?text="+encodeURIComponent(fb);wa.target="_blank";wa.rel="noopener";
+  var n=el("div","nav");n.append(wa,btn("Neu anfangen","",function(){S={view:"chef",auftrag:null,rapport:null};save();render();}));stage.append(n);
+}
+function render(){
+  stage.textContent="";
+  [["chef","tab-chef"],["vor","tab-vor"],["abg","tab-abg"]].forEach(function(t){var b=document.getElementById(t[1]);b.setAttribute("aria-selected",S.view===t[0]);b.onclick=function(){go(t[0]);};});
+  ({chef:chef,vor:vor,abg:abg})[S.view]();
+}
+render();
+})();
+</script>
+</body>
+</html>
