@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<style>body{margin:0}[hidden]{display:none!important}</style>
+<title>Zeitfresser-Interview</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Instrument+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: eine Frage pro Bildschirm, schmale Spalte fürs Handy, Fortschritt als Zollstock oben */
+:root{
+  --bg:#f1f4ef; --surface:#ffffff; --fg:#17211b; --muted:#5a6960; --line:#d3dad2;
+  --accent:#1f5c3d; --accent-fg:#ffffff; --rule:#f2c230; --rule-ink:#3a2f00; --warn:#a33b1e;
+  --display:"Bricolage Grotesque","Arial Narrow",system-ui,sans-serif;
+  --body:"Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#111713; --surface:#1a221d; --fg:#e8ede8; --muted:#9aa89e; --line:#2f3b33;
+  --accent:#74c598; --accent-fg:#0d1a12; --rule:#e0b324; --rule-ink:#2a2200; --warn:#f08a6c; color-scheme:dark } }
+:root[data-theme="dark"]{
+  --bg:#111713; --surface:#1a221d; --fg:#e8ede8; --muted:#9aa89e; --line:#2f3b33;
+  --accent:#74c598; --accent-fg:#0d1a12; --rule:#e0b324; --rule-ink:#2a2200; --warn:#f08a6c; color-scheme:dark }
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:400 17px/1.5 var(--body);padding-inline:18px;padding-block:20px 48px}
+.wrap{max-width:34rem;margin-inline:auto;display:flex;flex-direction:column;gap:22px}
+.brand{font:600 13px/1 var(--body);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+/* Zollstock */
+.rule{height:22px;border-radius:3px;background:var(--surface);border:1px solid var(--line);overflow:hidden;position:relative}
+.rule i{display:block;height:100%;background:
+  repeating-linear-gradient(90deg,transparent 0 9px,var(--rule-ink) 9px 10px),var(--rule);
+  background-size:auto 45%,auto;background-repeat:repeat-x,no-repeat;transition:width .25s ease}
+.rule span{position:absolute;right:8px;top:0;line-height:20px;font:600 12px/20px var(--body);color:var(--muted);font-variant-numeric:tabular-nums}
+@media (prefers-reduced-motion:reduce){.rule i{transition:none}}
+h1{font:800 clamp(1.7rem,7vw,2.3rem)/1.08 var(--display);margin:0;text-wrap:balance}
+.hint{color:var(--muted);margin:0}
+.block{display:flex;flex-direction:column;gap:10px}
+.label{font:600 14px/1.3 var(--body);color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font:500 16px/1.2 var(--body);padding:11px 14px;border-radius:999px;border:1.5px solid var(--line);background:var(--surface);color:var(--fg);cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
+textarea{width:100%;min-height:104px;font:400 17px/1.45 var(--body);padding:12px 14px;border-radius:10px;border:1.5px solid var(--line);background:var(--surface);color:var(--fg);resize:vertical}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.hours{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.hours b{font:800 1.5rem/1 var(--display);font-variant-numeric:tabular-nums}
+:focus-visible{outline:3px solid var(--rule);outline-offset:2px}
+.nav{display:flex;gap:10px;flex-wrap:wrap}
+.btn{font:600 17px/1 var(--body);padding:15px 20px;border-radius:10px;border:1.5px solid var(--line);background:transparent;color:var(--fg);cursor:pointer;text-decoration:none;text-align:center}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg);flex:1 1 12rem}
+.btn:disabled{opacity:.55;cursor:default}
+.summary{white-space:pre-wrap;font:400 15px/1.5 var(--body);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:0;max-height:22rem;overflow:auto;user-select:all;-webkit-user-select:all}
+.note{font-size:14px;color:var(--muted);margin:0}
+.note.warn{color:var(--warn)}
+.log{display:flex;flex-direction:column;gap:10px}
+.msg{padding:12px 14px;border-radius:14px;max-width:88%;white-space:pre-wrap;overflow-wrap:anywhere}
+.msg.ai{background:var(--surface);border:1px solid var(--line);align-self:flex-start;border-bottom-left-radius:4px}
+.msg.me{background:var(--accent);color:var(--accent-fg);align-self:flex-end;border-bottom-right-radius:4px}
+.who{font:600 13px/1 var(--body);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+</style>
+
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">Zeitfresser-Interview · Gartenbau</div>
+  <div class="rule" aria-hidden="true"><i id="bar" style="width:0%"></i><span id="count"></span></div>
+  <main id="stage" class="block" style="gap:20px"></main>
+</div>
+
+<script>
+(function(){
+var KEY="zeitfresser-v1";
+var Q=[
+ {id:"betrieb",t:"Erstmal zu deinem Betrieb",h:"Damit Jan weiß, über welche Größe wir reden.",
+  groups:[{label:"Wie viele Leute seid ihr?",single:true,opts:["1–5","6–15","16–30","über 30"]},
+          {label:"Womit verdient ihr euer Geld?",opts:["Privatgärten Neuanlage","Pflege / Pflegeverträge","Gewerbe & Wohnungsbau","Öffentliche Aufträge","Pflaster & Wegebau","Baumpflege"]}],
+  ph:"Sonst noch was Wichtiges zum Betrieb?"},
+ {id:"chef",t:"Was frisst bei dir persönlich die meiste Bürozeit?",h:"Alles antippen, was nervt.",
+  groups:[{opts:["Angebote schreiben","Ausschreibungen / LVs lesen","Nachkalkulation","Rechnungen schreiben","E-Mails & Rückrufe","Personal & Einsatzplanung","Mahnungen","Ärger mit Mängeln"]}],
+  hours:"Wie viele Stunden pro Woche sitzt du am Schreibtisch?",ph:"Was genau dauert daran so lange?"},
+ {id:"baustelle",t:"Was schieben deine Bauleiter und Vorarbeiter vor sich her?",h:"Der Papierkram, der abends liegen bleibt.",
+  groups:[{opts:["Bautagebuch","Aufmaß","Nachträge anmelden","Behinderungs- / Bedenkenanzeigen","Fotos sortieren","Material bestellen","Abnahme & Mängellisten","Wochenplanung der Kolonnen"]}],
+  ph:"Wie läuft das heute? Zettel, WhatsApp, gar nicht?"},
+ {id:"geld",t:"Wo geht euch Geld verloren?",h:"Ehrlich. Bleibt in der Familie.",
+  groups:[{opts:["Nachträge nicht dokumentiert","Stunden nicht sauber erfasst","Angebote nicht nachgefasst","Zu knapp kalkuliert","Rechnungen gehen zu spät raus","Material doppelt oder falsch bestellt","Zahlungen kommen spät"]}],
+  ph:"Fällt dir ein konkretes Beispiel ein?"},
+ {id:"stunden",t:"Wie laufen Stundenzettel und Eingangsrechnungen?",h:"",
+  groups:[{label:"Stundenzettel",single:true,opts:["Papier","WhatsApp / Foto","App","Excel"]},
+          {label:"Eingangsrechnungen & Lieferscheine",single:true,opts:["Macht das Büro von Hand","Steuerberater bekommt alles","Software liest sie ein","Läuft irgendwie"]}],
+  ph:"Wer tippt das am Ende ab, und wie lange dauert das?"},
+ {id:"software",t:"Womit arbeitet ihr im Büro?",h:"Entscheidet, was sich anbinden lässt.",
+  groups:[{opts:["Excel / Word","DATAflor","KS21","GaLaOffice","Lexware / sevDesk","DATEV über Steuerberater","Outlook","Was anderes"]}],
+  ph:"Name der Software, falls sie oben fehlt. Bist du zufrieden damit?"},
+ {id:"angebote",t:"Wie läuft es mit Angeboten?",h:"",
+  groups:[{label:"Angebote pro Monat",single:true,opts:["unter 5","5–15","15–30","über 30"]},
+          {label:"Zeit pro Angebot",single:true,opts:["unter 1 Std.","1–3 Std.","halber Tag","länger"]},
+          {label:"Fasst ihr nach?",single:true,opts:["Ja, immer","Wenn Zeit ist","Eigentlich nie"]}],
+  ph:"Was hält dich beim Angebot am meisten auf?"},
+ {id:"wunsch",t:"Wenn du morgen eine einzige Aufgabe los wärst: welche?",h:"Diktieren geht auch, einfach das Mikro auf der Tastatur antippen.",groups:[],ph:"Die eine Sache …"},
+ {id:"bedenken",t:"Was müsste stimmen, damit du KI im Betrieb wirklich nutzt?",h:"Und was hält dich ab?",
+  groups:[{opts:["Muss am Handy laufen","Darf keine Zusatzarbeit machen","Meine Leute müssen es verstehen","Daten müssen sicher sein","Muss zur Software passen","Kosten müssen klar sein","Ich traue dem Ergebnis nicht"]}],
+  ph:"Was noch?"}
+];
+var S={step:-1,a:{},follow:[],name:"",mode:"form",chat:[],chatSummary:""};
+try{var raw=localStorage.getItem(KEY);if(raw){var p=JSON.parse(raw);if(p&&p.a){S=p;S.chat=S.chat||[];S.mode=S.mode||"form";S.chatSummary=S.chatSummary||"";}}}catch(e){}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){}}
+function ans(id){return S.a[id]||(S.a[id]={g:{},hours:null,text:""});}
+var sample=null,onSample=null;
+if(window.claude&&window.claude.use){window.claude.use("sample").then(function(s){sample=s;if(S.step===Q.length)render();else if(s&&onSample)onSample();}).catch(function(){});}
+
+var stage=document.getElementById("stage"),bar=document.getElementById("bar"),count=document.getElementById("count");
+function el(tag,cls,txt){var e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e;}
+function btn(txt,cls,fn){var b=el("button","btn"+(cls?" "+cls:""),txt);b.type="button";b.onclick=fn;return b;}
+function go(n){S.step=n;save();render();window.scrollTo(0,0);}
+
+var OPEN="Moin! Ich bin Spaten-Kalle, Jans KI-Assistent. Jan will wissen, wo in deinem Betrieb die Zeit im Büro bleibt, damit er dir was Passendes bauen kann. Fangen wir einfach an: Wie viele Leute seid ihr, und womit verdient ihr hauptsächlich euer Geld?";
+function rules(){return "Du bist Spaten-Kalle, ein Interview-Assistent (eine KI), und arbeitest für Jan. Wenn du gefragt wirst, sagst du offen, dass du eine KI bist. Jan baut KI-Automatisierung für Handwerks- und Garten-/Landschaftsbaubetriebe. Dein Gesprächspartner"+(S.name?" heißt "+S.name+",":"")+" ist Jans Schwager, führt einen Gartenbaubetrieb und hat gerade Zeit. Führe ein lockeres Interview auf Deutsch in der Du-Form. Regeln: Immer nur EINE Frage pro Nachricht, höchstens zwei kurze Sätze, kein Fachchinesisch über KI. Geh kurz auf seine Antwort ein und hake nach, wenn etwas vage bleibt: wie oft, wie lange, wer macht es, mit welchem Werkzeug. Themen, die am Ende abgedeckt sein sollen: Betriebsgröße und Schwerpunkt; was den Chef persönlich die meiste Bürozeit kostet (Stunden pro Woche); welchen Papierkram Bauleiter und Vorarbeiter vor sich herschieben (Bautagebuch, Aufmaß, Nachträge); wo Geld verloren geht; wie Stundenzettel und Eingangsrechnungen laufen; welche Software im Einsatz ist; wie Angebote entstehen und ob nachgefasst wird; welche eine Aufgabe er am liebsten los wäre; welche Bedenken er gegenüber KI hat. Frage nicht nach Gesundheit oder Privatem. Mach keine Zusagen zu Preisen, Terminen oder Leistungen, das klärt Jan selbst. Wenn alle Themen durch sind (nach etwa 10 bis 14 Fragen), bedanke dich kurz und sag ihm, er soll unten auf „Fertig“ tippen.";}
+function transcript(){return S.chat.map(function(m){return (m.role==="assistant"?"Spaten-Kalle: ":(S.name||"Antwort")+": ")+m.content;}).join("\n");}
+function summary(){
+  if(S.mode==="chat")return S.chatSummary||("Zeitfresser-Interview"+(S.name?" – "+S.name:"")+"\n\n"+transcript());
+  var out=["Zeitfresser-Interview"+(S.name?" – "+S.name:""),""];
+  Q.forEach(function(q,i){
+    var a=S.a[q.id];if(!a)return;var lines=[];
+    q.groups.forEach(function(g,gi){var sel=a.g[gi]||[];if(sel.length)lines.push((g.label?g.label+": ":"")+sel.join(", "));});
+    if(a.hours!=null)lines.push("Schreibtisch: ca. "+a.hours+" Std./Woche");
+    if(a.text&&a.text.trim())lines.push("„"+a.text.trim()+"“");
+    if(lines.length){out.push((i+1)+". "+q.t);lines.forEach(function(l){out.push("– "+l);});out.push("");}
+  });
+  var f=S.follow.filter(function(x){return x.a&&x.a.trim();});
+  if(f.length){out.push("Nachfragen");f.forEach(function(x){out.push("– "+x.q);out.push("  "+x.a.trim());});}
+  return out.join("\n").trim();
+}
+
+function render(){
+  stage.textContent="";
+  var total=Q.length,users=S.chat.filter(function(m){return m.role==="user";}).length;
+  var pct=S.step===-2?Math.min(95,Math.round(users/12*100)):S.step<0?0:Math.min(100,Math.round(S.step/total*100));
+  bar.style.width=pct+"%";
+  count.textContent=S.step===-2?(users?users+" Antworten":""):S.step<0?"":(S.step<total?(S.step+1)+" / "+total:"fertig");
+  if(S.step===-2)return chat();
+  if(S.step<0)return intro();
+  if(S.step>=total)return done();
+  var q=Q[S.step],a=ans(q.id);
+  stage.append(el("h1",null,q.t));
+  if(q.h)stage.append(el("p","hint",q.h));
+  q.groups.forEach(function(g,gi){
+    var blk=el("div","block");if(g.label)blk.append(el("div","label",g.label));
+    var row=el("div","chips");
+    g.opts.forEach(function(o){
+      var c=el("button","chip",o);c.type="button";
+      var sel=a.g[gi]||(a.g[gi]=[]);c.setAttribute("aria-pressed",sel.indexOf(o)>=0);
+      c.onclick=function(){var s=a.g[gi],k=s.indexOf(o);
+        if(g.single){a.g[gi]=k>=0?[]:[o];}else if(k>=0){s.splice(k,1);}else{s.push(o);}
+        save();Array.prototype.forEach.call(row.children,function(x){x.setAttribute("aria-pressed",a.g[gi].indexOf(x.textContent)>=0);});};
+      row.append(c);});
+    blk.append(row);stage.append(blk);});
+  if(q.hours){
+    var hb=el("div","block"),head=el("div","hours"),lab=el("label","label",q.hours),val=el("b",null,a.hours==null?"–":a.hours+" Std.");
+    var r=el("input");r.type="range";r.min=0;r.max=30;r.step=1;r.value=a.hours==null?8:a.hours;r.id="hours-"+q.id;lab.htmlFor=r.id;
+    r.oninput=function(){a.hours=+r.value;val.textContent=a.hours+" Std.";save();};
+    head.append(lab,val);hb.append(head,r);stage.append(hb);}
+  var ta=el("textarea");ta.id="text-"+q.id;ta.placeholder=q.ph;ta.value=a.text||"";ta.setAttribute("aria-label",q.ph);
+  ta.oninput=function(){a.text=ta.value;save();};stage.append(ta);
+  var nav=el("div","nav");
+  nav.append(btn("Zurück","",function(){go(S.step-1);}),btn(S.step===total-1?"Fertig":"Weiter","primary",function(){go(S.step+1);}));
+  stage.append(nav);
+}
+
+function intro(){
+  stage.append(el("h1",null,"Du liegst eh nur rum. Hilf Jan kurz."));
+  stage.append(el("p","hint","Jan baut KI-Helfer für Betriebe wie deinen. Dafür muss er wissen, wo bei euch die Zeit bleibt. 9 Fragen, etwa 10 Minuten, meistens nur antippen. Am Ende schickst du ihm das Ergebnis per WhatsApp."));
+  var blk=el("div","block"),lab=el("label","label","Dein Name"),inp=el("input");
+  inp.id="name";inp.type="text";inp.value=S.name||"";inp.autocomplete="given-name";lab.htmlFor="name";
+  inp.style.cssText="font:400 17px/1.4 var(--body);padding:12px 14px;border-radius:10px;border:1.5px solid var(--line);background:var(--surface);color:var(--fg);width:100%";
+  inp.oninput=function(){S.name=inp.value.trim();save();};
+  blk.append(lab,inp);stage.append(blk);
+  var nav=el("div","nav");var start=btn("Los geht's","primary",function(){S.mode="form";go(0);});nav.append(start);stage.append(nav);
+  onSample=function(){
+    if(S.step!==-1||nav.dataset.ai)return;nav.dataset.ai="1";
+    start.textContent="Lieber Fragen antippen";start.className="btn";
+    nav.prepend(btn("Mit Spaten-Kalle schreiben (Jans KI-Assistent)","primary",function(){S.mode="chat";if(!S.chat.length)S.chat=[{role:"assistant",content:OPEN}];go(-2);}));
+  };
+  if(sample)onSample();
+  stage.append(el("p","note","Deine Antworten bleiben auf deinem Handy, bis du sie selbst abschickst."));
+}
+
+function chat(){
+  onSample=null;
+  stage.append(el("div","who","Spaten-Kalle · Jans KI-Assistent"));
+  var log=el("div","log");stage.append(log);
+  function bubble(m){var b=el("div","msg "+(m.role==="assistant"?"ai":"me"),m.content);log.append(b);return b;}
+  S.chat.forEach(bubble);
+  var ta=el("textarea");ta.id="chat-input";ta.placeholder="Deine Antwort … (Diktieren geht über das Mikro auf der Tastatur)";ta.setAttribute("aria-label","Deine Antwort");ta.style.minHeight="84px";
+  var msg=el("p","note","");
+  var send=btn("Senden","primary",function(){
+    var t=ta.value.trim();if(!t||!sample)return;
+    S.chat.push({role:"user",content:t});bubble(S.chat[S.chat.length-1]);ta.value="";
+    var pend=el("div","msg ai","schreibt …");log.append(pend);send.disabled=true;msg.textContent="";pend.scrollIntoView({block:"nearest"});
+    sample([{role:"user",content:rules()}].concat(S.chat),{cache:false,modelTier:"quick",onText:function(u){pend.textContent=u.text;}})
+    .then(function(r){S.chat.push({role:"assistant",content:r.text});pend.textContent=r.text;save();send.disabled=false;
+      var n=S.chat.filter(function(m){return m.role==="user";}).length;bar.style.width=Math.min(95,Math.round(n/12*100))+"%";count.textContent=n+" Antworten";})
+    .catch(function(e){
+      pend.remove();S.chat.pop();log.lastChild&&log.lastChild.remove();ta.value=t;send.disabled=false;save();
+      var c=e&&e.code;msg.className="note warn";
+      if(c==="not_granted"||c==="sampling_disabled"||c==="not_declared"||c==="capability_disabled"||c==="capability_removed"){
+        msg.textContent="Das KI-Gespräch ist hier nicht verfügbar. Nimm stattdessen die Fragen zum Antippen.";send.disabled=true;}
+      else msg.textContent=c==="rate_limited"?"Gerade zu viele Anfragen. Warte kurz und sende nochmal.":c==="session_expired"?"Du musst dich neu bei Claude anmelden.":"Das hat nicht geklappt. Sende einfach nochmal.";});
+  });
+  var fin=btn("Fertig","",function(){
+    var n=S.chat.filter(function(m){return m.role==="user";}).length;
+    if(!n){msg.className="note warn";msg.textContent="Beantworte erst mindestens eine Frage.";return;}
+    fin.disabled=true;send.disabled=true;fin.textContent="Fasse zusammen …";
+    var end=function(){save();go(Q.length);};
+    if(!sample){S.chatSummary="";return end();}
+    sample("Fasse dieses Interview mit dem Chef eines Garten- und Landschaftsbaubetriebs für Jan zusammen, der dem Betrieb KI-Automatisierung anbieten will. Nur Fakten aus dem Gespräch, nichts erfinden, fehlende Angaben weglassen. Reiner Text ohne Markdown, höchstens 1500 Zeichen, mit diesen Abschnitten: Betrieb / Zeitfresser (mit Stunden, wo genannt) / Wo Geld verloren geht / Software und Abläufe / Größter Wunsch / Bedenken / Drei sinnvollste Einstiege für Automatisierung.\n\nInterview:\n"+transcript().slice(0,60000))
+    .then(function(r){S.chatSummary="Zeitfresser-Interview"+(S.name?" – "+S.name:"")+"\n\n"+r.text.trim();end();})
+    .catch(function(){S.chatSummary="";end();});
+  });
+  var nav=el("div","nav");nav.append(send,fin);
+  stage.append(ta,nav,msg);
+  var nav2=el("div","nav");nav2.append(btn("Lieber Fragen antippen","",function(){S.mode="form";go(0);}));stage.append(nav2);
+  if(!sample){send.disabled=true;msg.textContent="Verbinde mit dem Assistenten …";onSample=function(){if(S.step===-2){send.disabled=false;msg.textContent="";}};}
+}
+
+function done(){
+  stage.append(el("h1",null,"Danke"+(S.name?", "+S.name:"")+". Das hilft."));
+  stage.append(el("p","hint","Schick Jan jetzt die Zusammenfassung."));
+  // KI-Nachfragen, nur wenn verfügbar
+  var fwrap=el("div","block");stage.append(fwrap);
+  function drawFollow(){
+    fwrap.textContent="";
+    if(S.follow.length&&S.mode!=="chat"){
+      fwrap.append(el("div","label","Drei Nachfragen zu deinen Antworten (freiwillig)"));
+      S.follow.forEach(function(x,i){
+        var b=el("div","block"),l=el("label",null,x.q),t=el("textarea");t.id="follow-"+i;l.htmlFor=t.id;t.style.minHeight="76px";t.value=x.a||"";
+        t.oninput=function(){x.a=t.value;save();pre.textContent=summary();wa.href=waUrl();};b.append(l,t);fwrap.append(b);});
+    }else if(sample&&S.mode!=="chat"){
+      var msg=el("p","note","");
+      var kb=btn("KI soll gezielt nachhaken","",function(){
+        kb.disabled=true;kb.textContent="Denkt nach …";msg.textContent="";
+        sample.json("Du interviewst den Chef eines Garten- und Landschaftsbaubetriebs für einen Berater, der KI-Automatisierung plant. Hier sind seine bisherigen Antworten:\n\n"+summary()+"\n\nStelle genau 3 kurze, konkrete Nachfragen auf Deutsch (Du-Form), die die größten Zeitfresser greifbar machen: Häufigkeit, Dauer, wer es macht, welches Werkzeug. Keine Frage wiederholen, die schon beantwortet ist. Antworte nur mit einem JSON-Array aus 3 Strings.",{modelTier:"quick"})
+        .then(function(arr){
+          if(!Array.isArray(arr)||!arr.length)throw {code:"invalid_json"};
+          S.follow=arr.slice(0,3).map(function(q){return {q:String(q),a:""};});save();drawFollow();})
+        .catch(function(e){
+          var c=e&&e.code;
+          if(c==="not_granted"||c==="sampling_disabled"||c==="not_declared"||c==="capability_disabled"||c==="capability_removed"){fwrap.textContent="";return;}
+          kb.disabled=false;kb.textContent="KI soll gezielt nachhaken";msg.className="note warn";
+          msg.textContent=c==="rate_limited"?"Gerade zu viele Anfragen. Versuch es später nochmal oder schick einfach so ab.":"Das hat nicht geklappt. Du kannst es nochmal versuchen oder einfach so abschicken.";});
+      });
+      fwrap.append(kb,msg);
+    }
+  }
+  var pre=el("pre","summary",summary());pre.tabIndex=0;
+  function waUrl(){return "https://wa.me/?text="+encodeURIComponent(summary());}
+  var wa=el("a","btn primary","Per WhatsApp an Jan schicken");wa.href=waUrl();wa.target="_blank";wa.rel="noopener";
+  var cmsg=el("p","note","Falls WhatsApp nicht aufgeht: Text kopieren und Jan direkt schicken.");
+  var cp=btn("Text kopieren","",function(){
+    var t=summary();
+    (navigator.clipboard&&navigator.clipboard.writeText?navigator.clipboard.writeText(t):Promise.reject())
+    .then(function(){cp.textContent="Kopiert";setTimeout(function(){cp.textContent="Text kopieren";},2000);})
+    .catch(function(){var r=document.createRange();r.selectNodeContents(pre);var s=getSelection();s.removeAllRanges();s.addRange(r);cmsg.textContent="Text ist markiert. Lange drücken und „Kopieren“ wählen.";});
+  });
+  drawFollow();
+  stage.append(pre);
+  var nav=el("div","nav");nav.append(wa,cp);stage.append(nav,cmsg);
+  var nav2=el("div","nav");nav2.append(btn(S.mode==="chat"?"Zurück zum Gespräch":"Antworten ändern","",function(){go(S.mode==="chat"?-2:0);}));stage.append(nav2);
+}
+render();
+})();
+</script>
+</body>
+</html>
